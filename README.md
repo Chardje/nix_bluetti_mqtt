@@ -1,121 +1,85 @@
-============
-bluetti_mqtt
-============
+# Bluetti MQTT — NixOS Module
 
-This tool provides an MQTT interface to Bluetti power stations. State will be
-published to the ``bluetti/state/[DEVICE NAME]/[PROPERTY]`` topic, and commands
-can be sent to the ``bluetti/command/[DEVICE NAME]/[PROPERTY]`` topic.
+This fork adds a NixOS flake module to [semitop7/bluetti_mqtt](https://github.com/semitop7/bluetti_mqtt),
+which itself is a fork of [warhammerkid/bluetti_mqtt](https://github.com/warhammerkid/bluetti_mqtt).
 
-Installation
-------------
+The original forks replace `asyncio-mqtt` with `aiomqtt` and update required libraries to latest versions.
+This fork adds a NixOS-native way to run the bridge — without Docker or the Home Assistant Add-on Store.
 
-.. code-block:: bash
+![Supports aarch64 Architecture](https://img.shields.io/badge/aarch64-yes-green.svg)
+![Supports amd64 Architecture](https://img.shields.io/badge/amd64-yes-green.svg)
+![Last Updated](https://img.shields.io/github/last-commit/Chardje/bluetti_mqtt?label=Last%20Updated)
 
-    $ pip install git+https://github.com/semitop7/bluetti_mqtt.git
+---
 
-Usage
------
+## What is this?
 
-.. code-block:: bash
+A NixOS module that runs `bluetti_mqtt` as a systemd service — an MQTT bridge between
+your Bluetti power station and Home Assistant.
+---
 
-    $ bluetti-mqtt --scan
-    Found AC3001234567890123: address 00:11:22:33:44:55
-    $ bluetti-mqtt --broker [MQTT_BROKER_HOST] 00:11:22:33:44:55
+## Installation
 
-If your MQTT broker has a username and password, you can pass those in.
+Add this flake to your NixOS configuration:
 
-.. code-block:: bash
+**`flake.nix`**:
+```nix
+inputs = {
+  bluetti-mqtt.url = "github:Chardje/bluetti_mqtt";
+};
 
-    $ bluetti-mqtt --broker [MQTT_BROKER_HOST] --username username --password pass 00:11:22:33:44:55
+outputs = { self, nixpkgs, bluetti-mqtt }: {
+  nixosConfigurations.yourhostname = nixpkgs.lib.nixosSystem {
+    modules = [
+      ./configuration.nix
+      bluetti-mqtt.nixosModules.default
+    ];
+  };
+};
+```
 
-By default the device is polled as quickly as possible, but if you'd like to
-collect less data, the polling interval can be adjusted.
+**`configuration.nix`**:
+```nix
+services.bluetti-mqtt = {
+  enable = true;
+  btMac = "AA:BB:CC:DD:EE:FF";  # your device MAC address
+  mqttHost = "127.0.0.1";
+  pollSec = 30;
+};
+```
 
-.. code-block:: bash
+---
 
-    # Poll every 60s
-    $ bluetti-mqtt --broker [MQTT_BROKER_HOST] --interval 60 00:11:22:33:44:55
+## Finding your device MAC address
 
-If you have multiple devices within bluetooth range, you can monitor all of
-them with just a single command. We can only talk to one device at a time, so
-you may notice some irregularity in the collected data, especially if you have
-not set an interval.
+```bash
+sudo nix run github:Chardje/nix_bluetti_mqtt -- --scan --debug
+```
 
-.. code-block:: bash
+Copy the MAC address, disable `scan` and set `btMac`.
 
-    $ bluetti-mqtt --broker [MQTT_BROKER_HOST] 00:11:22:33:44:55 00:11:22:33:44:66
+---
 
-Background Service
-------------------
+## Configuration options
 
-If you are running on a platform with systemd, you can use the following as a
-template. It should be placed in ``/etc/systemd/system/bluetti-mqtt.service``.
-Once you've written the file, you'll need to run
-``sudo systemctl start bluetti-mqtt``. If you want it to run automatically after
-rebooting, you'll also need to run ``sudo systemctl enable bluetti-mqtt``.
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `enable` | bool | `false` | Enable the service |
+| `btMac` | string | `null` | MAC address(es), space-separated |
+| `scan` | bool | `false` | Scan for nearby devices |
+| `mqttHost` | string | `""` | MQTT broker host |
+| `mqttPort` | string | `""` | MQTT broker port |
+| `mqttUsername` | string | `null` | MQTT username |
+| `mqttPassword` | string | `null` | MQTT password |
+| `mode` | enum | `mqtt` | `mqtt` / `discovery` / `logger` |
+| `pollSec` | int | `30` | Polling interval in seconds |
+| `haConfig` | enum | `normal` | `normal` / `none` / `advanced` |
+| `debug` | bool | `false` | Enable debug logging |
 
-.. code-block:: bash
+---
 
-    [Unit]
-    Description=Bluetti MQTT
-    After=network.target
-    StartLimitIntervalSec=0
+## Credits
 
-    [Service]
-    Type=simple
-    Restart=always
-    RestartSec=30
-    TimeoutStopSec=15
-    User=your_username_here
-    ExecStart=/home/your_username_here/.local/bin/bluetti-mqtt --broker [MQTT_BROKER_HOST] 00:11:22:33:44:55
-
-    [Install]
-    WantedBy=multi-user.target
-
-
-
-Home Assistant Integration
---------------------------
-
-If you have configured Home Assistant to use the same MQTT broker, then by
-default most data and switches will be automatically configured there. This is
-possible thanks to Home Assistant's support for automatic MQTT discovery, which
-is enabled by default with the discovery prefix of ``homeassistant``.
-
-This can be controlled with the ``--ha-config`` flag, which defaults to
-configuring most fields ("normal"). Home Assistant MQTT discovery can also be
-disabled, or additional internal device fields can be configured with the
-"advanced" option.
-
-Reverse Engineering
--------------------
-
-For research purposes you can also use the ``bluetti-logger`` command to poll
-the device and log in a standardised format.
-
-.. code-block:: bash
-
-    $ bluetti-logger --log the-log-file.log 00:11:22:33:44:55
-
-While the logger is running, change settings on the device and take note of the
-time when you made the change, waiting ~ 1 minute between changes. Note that
-not every setting that can be changed on the device can be changed over
-bluetooth.
-
-If you're looking to add support to control something that the app can change
-but cannot be changed directly from the device screen, both iOS and Android
-support collecting bluetooth logs from running apps. Additionally, with the
-correct hardware Wireshark can be used to collect logs. With these logs and a
-report of what commands were sent at what times, this data can be used to
-reverse engineer support.
-
-For supporting new devices, the ``bluetti-discovery`` command is provided. It
-will scan from 0 to 12500 assuming MODBUS-over-Bluetooth. This will take a
-while and requires that the scanned device be in close Bluetooth range for
-optimal performance.
-
-.. code-block:: bash
-
-    $ bluetti-discovery --scan
-    Found AC3001234567890123: address 00:11:22:33:44:55
-    $ bluetti-discovery --log the-log-file.log 00:11:22:33:44:55
+- Original package: [warhammerkid/bluetti_mqtt](https://github.com/warhammerkid/bluetti_mqtt)
+- HA add-on fork: [semitop7/bluetti_mqtt](https://github.com/semitop7/bluetti_mqtt)
+- NixOS module: [Chardje/bluetti_mqtt](https://github.com/Chardje/bluetti_mqtt)s
