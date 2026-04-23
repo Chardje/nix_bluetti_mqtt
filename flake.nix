@@ -15,7 +15,7 @@
           pname = "bluetti_mqtt";
           version = "0.16.1";
           src = ./.;
-          pyproject = true;
+           format = "setuptools"; 
           build-system = with pkgs.python3Packages; [
             setuptools
             wheel
@@ -23,10 +23,14 @@
           propagatedBuildInputs = with pkgs.python3Packages; [
             paho-mqtt
             bleak
+            crcmod
+            aiomqtt
           ];
-          doCheck = false;  # ← додати
+          doCheck = false;  
+          meta.mainProgram = "bluetti-mqtt";
         };
         default = self.packages.${system}.bluetti-mqtt;
+        
       }
     );
 
